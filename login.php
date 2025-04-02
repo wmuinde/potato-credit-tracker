@@ -30,8 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log("Checking password for user: $username");
             error_log("Stored hash: " . $user['password']);
             
-            // Special case for admin/admin123 during initial setup
-            if ($username === 'admin' && $password === 'admin123') {
+            // Special case for admin/password during initial setup
+            if ($username === 'admin' && $password === 'password') {
                 // Set session variables
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $user['username'];
