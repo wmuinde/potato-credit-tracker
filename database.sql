@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     status ENUM('active', 'inactive') DEFAULT 'active'
 );
 
--- Vehicles table (previously stores)
+-- Stores/Lorries table
 CREATE TABLE IF NOT EXISTS stores (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -90,6 +90,6 @@ CREATE TABLE IF NOT EXISTS expenses (
     FOREIGN KEY (recorded_by) REFERENCES users(id)
 );
 
--- Insert default admin user (password: password)
+-- Insert default admin user (password: admin123)
 INSERT INTO users (username, password, full_name, role)
 VALUES ('admin', '$2y$10$2UgHtkn3sHylPV5n19ZYDuUl1q66XQal8k/TSdfRIT0xQaQtKHhHO', 'System Administrator', 'admin');

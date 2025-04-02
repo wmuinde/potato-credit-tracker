@@ -1,5 +1,4 @@
 
-
 <header class="main-header">
     <div class="logo">
         <h1>Potato Credit Tracker</h1>
@@ -10,4 +9,3 @@
         <a href="logout.php" class="logout-btn">Logout</a>
     </div>
 </header>
-

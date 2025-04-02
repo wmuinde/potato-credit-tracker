@@ -8,7 +8,7 @@ checkAccess();
 $success = $error = '';
 $store_id = $_GET['store_id'] ?? null;
 
-// Get vehicle information if store_id is provided
+// Get store information if store_id is provided
 $store = null;
 if ($store_id) {
     $stmt = $conn->prepare("SELECT * FROM stores WHERE id = ?");
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_expense'])) {
     }
 }
 
-// Get all vehicles for dropdown
+// Get all stores for dropdown
 $stores_result = $conn->query("SELECT * FROM stores WHERE status = 'active' ORDER BY name");
 $stores = $stores_result->fetch_all(MYSQLI_ASSOC);
 
@@ -51,7 +51,7 @@ $expenses_query = "SELECT e.*, s.name as store_name, s.type as store_type, u.ful
                   JOIN stores s ON e.store_id = s.id 
                   JOIN users u ON e.recorded_by = u.id";
 
-// If store_id is provided, filter expenses by vehicle
+// If store_id is provided, filter expenses by store
 if ($store_id) {
     $stmt = $conn->prepare($expenses_query . " WHERE e.store_id = ? ORDER BY e.expense_date DESC");
     $stmt->bind_param("i", $store_id);
@@ -89,7 +89,7 @@ if ($store_id) {
             <h1>
                 Expenses Management
                 <?php if ($store): ?>
-                    for Vehicle: <?php echo sanitize($store['name']); ?>
+                    for <?php echo ucfirst($store['type']); ?>: <?php echo sanitize($store['name']); ?>
                 <?php endif; ?>
             </h1>
             
@@ -108,15 +108,16 @@ if ($store_id) {
                 <div class="card-body">
                     <form method="post" action="">
                         <div class="form-group">
-                            <label for="store_id">Vehicle*</label>
+                            <label for="store_id">Store/Lorry*</label>
                             <select id="store_id" name="store_id" required>
-                                <option value="">Select Vehicle</option>
+                                <option value="">Select Store/Lorry</option>
                                 <?php foreach ($stores as $s): ?>
                                     <option value="<?php echo $s['id']; ?>" <?php echo $store_id == $s['id'] ? 'selected' : ''; ?>>
                                         <?php echo sanitize($s['name']); ?> 
+                                        (<?php echo ucfirst($s['type']); ?>
                                         <?php if ($s['type'] === 'lorry' && !empty($s['number_plate'])): ?>
-                                            (<?php echo sanitize($s['number_plate']); ?>)
-                                        <?php endif; ?>
+                                            - <?php echo sanitize($s['number_plate']); ?>
+                                        <?php endif; ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -158,7 +159,7 @@ if ($store_id) {
                         <thead>
                             <tr>
                                 <th>Date</th>
-                                <th>Vehicle</th>
+                                <th>Store/Lorry</th>
                                 <th>Amount</th>
                                 <th>Description</th>
                                 <th>Recorded By</th>
@@ -174,12 +175,8 @@ if ($store_id) {
                                     <tr>
                                         <td><?php echo date('M d, Y', strtotime($expense['expense_date'])); ?></td>
                                         <td>
-                                            <?php echo sanitize($expense['store_name']); ?>
-                                            <?php if ($expense['store_type'] === 'lorry'): ?> 
-                                                (Vehicle)
-                                            <?php else: ?>
-                                                (Store)
-                                            <?php endif; ?>
+                                            <?php echo sanitize($expense['store_name']); ?> 
+                                            (<?php echo ucfirst($expense['store_type']); ?>)
                                         </td>
                                         <td><?php echo formatCurrency($expense['amount']); ?></td>
                                         <td><?php echo sanitize($expense['description']); ?></td>

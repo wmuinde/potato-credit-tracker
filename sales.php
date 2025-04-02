@@ -65,7 +65,7 @@ if (isAdmin()) {
                             <tr>
                                 <th>Date</th>
                                 <th>Customer</th>
-                                <th>Vehicle</th>
+                                <th>Store/Lorry</th>
                                 <th>Bags</th>
                                 <th>Amount</th>
                                 <th>Payment Type</th>
@@ -92,11 +92,7 @@ if (isAdmin()) {
                                         </td>
                                         <td>
                                             <?php echo sanitize($sale['store_name']); ?> 
-                                            <?php if ($sale['store_type'] === 'store'): ?>
-                                                (Store)
-                                            <?php else: ?>
-                                                (Vehicle)
-                                            <?php endif; ?>
+                                            (<?php echo ucfirst($sale['store_type']); ?>)
                                         </td>
                                         <td><?php echo $sale['bags_quantity']; ?> @ <?php echo formatCurrency($sale['price_per_bag']); ?></td>
                                         <td><?php echo formatCurrency($sale['total_amount']); ?></td>

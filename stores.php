@@ -7,7 +7,7 @@ checkAccess();
 
 $success = $error = '';
 
-// Handle form submission for adding new vehicle
+// Handle form submission for adding new store/lorry
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_store'])) {
     $name = trim($_POST['name'] ?? '');
     $type = $_POST['type'] ?? 'store';
@@ -21,14 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_store'])) {
         $stmt->bind_param("ssss", $name, $type, $location, $number_plate);
         
         if ($stmt->execute()) {
-            $success = "Vehicle added successfully.";
+            $success = ($type === 'store' ? "Store" : "Lorry") . " added successfully.";
         } else {
-            $error = "Failed to add vehicle: " . $conn->error;
+            $error = "Failed to add " . ($type === 'store' ? "store" : "lorry") . ": " . $conn->error;
         }
     }
 }
 
-// Handle vehicle status change
+// Handle store status change
 if (isset($_GET['action']) && isset($_GET['id'])) {
     $action = $_GET['action'];
     $id = $_GET['id'];
@@ -40,18 +40,18 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
         $stmt->bind_param("si", $status, $id);
         
         if ($stmt->execute()) {
-            $success = "Vehicle " . ($action === 'activate' ? 'activated' : 'deactivated') . " successfully.";
+            $success = "Store/Lorry " . ($action === 'activate' ? 'activated' : 'deactivated') . " successfully.";
         } else {
             $error = "Failed to update status: " . $conn->error;
         }
     }
 }
 
-// Get all vehicles
+// Get all stores/lorries
 $stores_result = $conn->query("SELECT * FROM stores ORDER BY type, name");
 $stores = $stores_result->fetch_all(MYSQLI_ASSOC);
 
-// Get vehicle stats
+// Get store stats
 foreach ($stores as &$store) {
     // Calculate total sales
     $stmt = $conn->prepare("SELECT SUM(total_amount) as total_sales FROM sales WHERE store_id = ?");
@@ -92,7 +92,7 @@ unset($store);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vehicles - Potato Credit Tracker</title>
+    <title>Stores/Lorries - Potato Credit Tracker</title>
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
@@ -102,7 +102,7 @@ unset($store);
         <?php include 'includes/sidebar.php'; ?>
         
         <main class="content">
-            <h1>Vehicles Management</h1>
+            <h1>Stores & Lorries Management</h1>
             
             <?php if (!empty($success)): ?>
                 <div class="alert alert-success"><?php echo $success; ?></div>
@@ -114,7 +114,7 @@ unset($store);
             
             <div class="card">
                 <div class="card-header">
-                    <h2>Add New Vehicle</h2>
+                    <h2>Add New Store/Lorry</h2>
                 </div>
                 <div class="card-body">
                     <form method="post" action="">
@@ -122,7 +122,7 @@ unset($store);
                             <label for="type">Type*</label>
                             <select id="type" name="type" required onchange="toggleNumberPlateField()">
                                 <option value="store">Store</option>
-                                <option value="lorry">Vehicle</option>
+                                <option value="lorry">Lorry</option>
                             </select>
                         </div>
                         
@@ -142,7 +142,7 @@ unset($store);
                         </div>
                         
                         <div class="form-group">
-                            <button type="submit" name="add_store" class="btn btn-primary">Add Vehicle</button>
+                            <button type="submit" name="add_store" class="btn btn-primary">Add Store/Lorry</button>
                         </div>
                     </form>
                 </div>
@@ -150,7 +150,7 @@ unset($store);
             
             <div class="card mt-4">
                 <div class="card-header">
-                    <h2>Vehicles List</h2>
+                    <h2>Stores & Lorries List</h2>
                 </div>
                 <div class="card-body">
                     <table class="data-table">
@@ -171,7 +171,7 @@ unset($store);
                         <tbody>
                             <?php if (empty($stores)): ?>
                                 <tr>
-                                    <td colspan="10" class="text-center">No vehicles found</td>
+                                    <td colspan="10" class="text-center">No stores or lorries found</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($stores as $store): ?>
@@ -196,7 +196,7 @@ unset($store);
                                             <a href="expenses.php?store_id=<?php echo $store['id']; ?>" class="btn btn-sm btn-primary">Expenses</a>
                                             
                                             <?php if ($store['status'] === 'active'): ?>
-                                                <a href="stores.php?action=deactivate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this vehicle?')">Deactivate</a>
+                                                <a href="stores.php?action=deactivate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this store/lorry?')">Deactivate</a>
                                             <?php else: ?>
                                                 <a href="stores.php?action=activate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-success">Activate</a>
                                             <?php endif; ?>
