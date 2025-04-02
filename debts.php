@@ -5,14 +5,15 @@ require_once 'config.php';
 // Check if user is logged in
 checkAccess();
 
-// Get all debts with customer info
+// Get all debts with customer info and vehicle info
 $query = "SELECT d.*, s.bags_quantity, s.price_per_bag, s.total_amount, 
           s.customer_id, s.created_by, s.store_id, c.full_name as customer_name,
-          u.full_name as recorded_by
+          u.full_name as recorded_by, st.name as vehicle_name, st.type as vehicle_type
           FROM debts d
           JOIN sales s ON d.sale_id = s.id
           JOIN customers c ON s.customer_id = c.id
           JOIN users u ON s.created_by = u.id
+          JOIN stores st ON s.store_id = st.id
           WHERE d.status != 'paid'
           ORDER BY d.last_updated DESC";
 $result = $conn->query($query);
@@ -47,7 +48,7 @@ $debts = $result->fetch_all(MYSQLI_ASSOC);
                         <thead>
                             <tr>
                                 <th>Customer</th>
-                                <th>Store/Lorry</th>
+                                <th>Vehicle</th>
                                 <th>Bags</th>
                                 <th>Original Amount</th>
                                 <th>Amount Due</th>
@@ -66,7 +67,9 @@ $debts = $result->fetch_all(MYSQLI_ASSOC);
                                 <?php foreach ($debts as $debt): ?>
                                     <tr>
                                         <td><?php echo sanitize($debt['customer_name']); ?></td>
-                                        <td><?php echo getStoreName($conn, $debt['store_id']); ?></td>
+                                        <td>
+                                            <span class="vehicle-tag"><?php echo sanitize($debt['vehicle_name']); ?></span>
+                                        </td>
                                         <td><?php echo $debt['bags_quantity']; ?> @ <?php echo formatCurrency($debt['price_per_bag']); ?></td>
                                         <td><?php echo formatCurrency($debt['total_amount']); ?></td>
                                         <td><?php echo formatCurrency($debt['amount_due'] - $debt['amount_paid']); ?></td>

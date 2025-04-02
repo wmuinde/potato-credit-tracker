@@ -1,5 +1,4 @@
 
-
 -- Database structure for Potato Credit Tracker
 
 CREATE DATABASE IF NOT EXISTS potato_credit_tracker;
@@ -16,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     status ENUM('active', 'inactive') DEFAULT 'active'
 );
 
--- Vehicles table
+-- Vehicles table (previously stores)
 CREATE TABLE IF NOT EXISTS stores (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -94,4 +93,3 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Insert default admin user (password: password)
 INSERT INTO users (username, password, full_name, role)
 VALUES ('admin', '$2y$10$2UgHtkn3sHylPV5n19ZYDuUl1q66XQal8k/TSdfRIT0xQaQtKHhHO', 'System Administrator', 'admin');
-
