@@ -18,7 +18,7 @@ if ($customer_id) {
     $customer = $result->fetch_assoc();
 }
 
-// Get all stores/lorries
+// Get all vehicles
 $stores_result = $conn->query("SELECT * FROM stores WHERE status = 'active'");
 $stores = $stores_result->fetch_all(MYSQLI_ASSOC);
 
@@ -128,9 +128,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         
                         <div class="form-group">
-                            <label for="store_id">Store/Lorry*</label>
+                            <label for="store_id">Vehicle*</label>
                             <select id="store_id" name="store_id" required>
-                                <option value="">Select Store/Lorry</option>
+                                <option value="">Select Vehicle</option>
                                 <?php foreach ($stores as $store): ?>
                                     <option value="<?php echo $store['id']; ?>">
                                         <?php echo sanitize($store['name']); ?> 
