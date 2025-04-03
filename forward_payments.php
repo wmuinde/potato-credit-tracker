@@ -47,6 +47,7 @@ $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS notes TEXT");
 $stmt = $conn->prepare("SELECT 
                          pl.*, 
                          DATE(pl.forwarded_date) as forward_date,
+                         TIME(pl.forwarded_date) as forward_time,
                          u.full_name as worker_name
                        FROM payment_logs pl
                        JOIN users u ON pl.worker_id = u.id
@@ -136,6 +137,20 @@ $create_logs_table = "CREATE TABLE IF NOT EXISTS payment_logs (
     FOREIGN KEY (worker_id) REFERENCES users(id)
 )";
 $conn->query($create_logs_table);
+
+// Get worker's assigned vehicles
+$stmt = $conn->prepare("SELECT DISTINCT 
+                        st.id, 
+                        st.name,
+                        st.type,
+                        st.status
+                      FROM sales s
+                      JOIN stores st ON s.store_id = st.id
+                      WHERE s.created_by = ?
+                      ORDER BY st.name");
+$stmt->bind_param("i", $worker_id);
+$stmt->execute();
+$worker_vehicles = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -152,7 +167,7 @@ $conn->query($create_logs_table);
         <?php include 'includes/sidebar.php'; ?>
         
         <main class="content">
-            <h1>Forward Payments to Admin</h1>
+            <h1 style="color: #8B4513;">Forward Payments to Admin</h1>
             
             <?php if (!empty($success)): ?>
                 <div class="alert alert-success"><?php echo $success; ?></div>
@@ -160,6 +175,24 @@ $conn->query($create_logs_table);
             
             <?php if (!empty($error)): ?>
                 <div class="alert alert-danger"><?php echo $error; ?></div>
+            <?php endif; ?>
+            
+            <?php if (!empty($worker_vehicles)): ?>
+            <div class="summary-card" style="margin-bottom: 20px;">
+                <h3>My Assigned Vehicles</h3>
+                <div class="worker-vehicles">
+                    <?php foreach($worker_vehicles as $vehicle): ?>
+                        <div class="vehicle-badge <?php echo $vehicle['status'] === 'active' ? 'active' : 'inactive'; ?>">
+                            <a href="store_details.php?id=<?php echo $vehicle['id']; ?>" style="text-decoration: none; color: inherit;">
+                                <?php echo sanitize($vehicle['name']); ?> (<?php echo ucfirst($vehicle['type']); ?>)
+                            </a>
+                            <span class="badge <?php echo $vehicle['status'] === 'active' ? 'success' : 'danger'; ?>">
+                                <?php echo ucfirst($vehicle['status']); ?>
+                            </span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
             <?php endif; ?>
             
             <div class="summary-card">
@@ -187,19 +220,20 @@ $conn->query($create_logs_table);
                             <input type="number" id="forward_amount" name="forward_amount" step="0.01" min="0.01" max="<?php echo $summary['total_uncollected']; ?>" value="<?php echo $summary['total_uncollected']; ?>" required>
                         </div>
                         <div class="form-group">
-                            <label for="notes">Notes (Optional)</label>
-                            <textarea id="notes" name="notes" rows="2" placeholder="Add any notes about this forwarded payment"></textarea>
+                            <label for="notes">Notes (Required)</label>
+                            <textarea id="notes" name="notes" rows="3" placeholder="Add details about this forwarded payment (e.g., date range, method of payment, receiver)" required></textarea>
+                            <small class="form-hint">Please provide details such as who received the payment, payment method, etc.</small>
                         </div>
                         <div class="form-group">
-                            <button type="submit" class="btn btn-primary">Forward to Admin</button>
+                            <button type="submit" class="btn btn-primary" style="background-color: #8B4513;">Forward to Admin</button>
                         </div>
                     </form>
                 </div>
                 <?php endif; ?>
             </div>
             
-            <div class="card">
-                <div class="card-header">
+            <div class="card" style="margin-top: 20px; border-left: 4px solid #8B4513;">
+                <div class="card-header" style="background-color: #f5efe6;">
                     <h2>Breakdown by Vehicle</h2>
                 </div>
                 <div class="card-body">
@@ -207,7 +241,7 @@ $conn->query($create_logs_table);
                         <p class="text-center">No payment data found</p>
                     <?php else: ?>
                         <table class="data-table">
-                            <thead>
+                            <thead style="background-color: #f5efe6;">
                                 <tr>
                                     <th>Vehicle</th>
                                     <th>Total Collected</th>
@@ -218,7 +252,11 @@ $conn->query($create_logs_table);
                             <tbody>
                                 <?php foreach ($vehicle_breakdown as $vehicle): ?>
                                     <tr>
-                                        <td><?php echo sanitize($vehicle['vehicle_name'] . ' (' . ucfirst($vehicle['vehicle_type']) . ')'); ?></td>
+                                        <td>
+                                            <a href="store_details.php?id=<?php echo $vehicle['store_id']; ?>" style="color: #8B4513; text-decoration: underline;">
+                                                <?php echo sanitize($vehicle['vehicle_name'] . ' (' . ucfirst($vehicle['vehicle_type']) . ')'); ?>
+                                            </a>
+                                        </td>
                                         <td><?php echo formatCurrency($vehicle['collected']); ?></td>
                                         <td><?php echo formatCurrency($vehicle['forwarded']); ?></td>
                                         <td><?php echo formatCurrency($vehicle['uncollected']); ?></td>
@@ -231,12 +269,13 @@ $conn->query($create_logs_table);
             </div>
             
             <?php if (!empty($forwarding_logs)): ?>
-            <div class="transaction-log">
+            <div class="transaction-log" style="border-left: 4px solid #8B4513;">
                 <h3>Payment Forwarding History</h3>
                 <table class="data-table">
-                    <thead>
+                    <thead style="background-color: #f5efe6;">
                         <tr>
-                            <th>Date & Time</th>
+                            <th>Date</th>
+                            <th>Time</th>
                             <th>Forwarded By</th>
                             <th>Amount Forwarded</th>
                             <th>Notes</th>
@@ -245,7 +284,8 @@ $conn->query($create_logs_table);
                     <tbody>
                         <?php foreach ($forwarding_logs as $log): ?>
                             <tr>
-                                <td><?php echo date('M d, Y H:i', strtotime($log['forwarded_date'])); ?></td>
+                                <td><?php echo date('M d, Y', strtotime($log['forwarded_date'])); ?></td>
+                                <td><?php echo date('H:i', strtotime($log['forwarded_date'])); ?></td>
                                 <td><?php echo sanitize($log['worker_name']); ?></td>
                                 <td><?php echo formatCurrency($log['total_amount']); ?></td>
                                 <td><?php echo !empty($log['notes']) ? sanitize($log['notes']) : '-'; ?></td>
@@ -325,7 +365,6 @@ $conn->query($create_logs_table);
             padding: 15px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-left: 4px solid #8B4513;
         }
         
         .transaction-log h3 {
@@ -333,6 +372,40 @@ $conn->query($create_logs_table);
             margin-top: 0;
             border-bottom: 1px solid #e8ddcf;
             padding-bottom: 10px;
+        }
+        
+        .form-hint {
+            display: block;
+            margin-top: 5px;
+            color: #6b5a45;
+            font-style: italic;
+        }
+        
+        .worker-vehicles {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .vehicle-badge {
+            background-color: #f5efe6;
+            border: 1px solid #e8ddcf;
+            border-radius: 8px;
+            padding: 8px 15px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #8B4513;
+            transition: all 0.3s ease;
+        }
+        
+        .vehicle-badge:hover {
+            background-color: #e8ddcf;
+        }
+        
+        .vehicle-badge.inactive {
+            opacity: 0.7;
         }
     </style>
     

@@ -32,7 +32,8 @@ if (!$store) {
 $stmt = $conn->prepare("SELECT 
     SUM(total_amount) AS total_sales,
     SUM(CASE WHEN payment_type = 'cash' THEN total_amount ELSE 0 END) AS cash_sales,
-    SUM(CASE WHEN payment_type = 'credit' THEN total_amount ELSE 0 END) AS credit_sales
+    SUM(CASE WHEN payment_type = 'credit' THEN total_amount ELSE 0 END) AS credit_sales,
+    COUNT(DISTINCT CASE WHEN payment_type = 'credit' THEN customer_id END) AS credit_customers_count
     FROM sales WHERE store_id = ?");
 $stmt->bind_param("i", $store_id);
 $stmt->execute();
@@ -59,12 +60,13 @@ $result = $stmt->get_result();
 $debts_stats = $result->fetch_assoc();
 
 // 4. Get workers associated with this vehicle
-$stmt = $conn->prepare("SELECT DISTINCT u.id, u.full_name 
-    FROM sales s 
-    JOIN users u ON s.created_by = u.id 
-    WHERE s.store_id = ? AND u.role = 'worker'
-    ORDER BY u.full_name");
-$stmt->bind_param("i", $store_id);
+$stmt = $conn->prepare("SELECT DISTINCT u.id, u.full_name, 
+                       (SELECT COUNT(*) FROM sales WHERE created_by = u.id AND store_id = ?) as sales_count
+                       FROM sales s 
+                       JOIN users u ON s.created_by = u.id 
+                       WHERE s.store_id = ? AND u.role = 'worker'
+                       ORDER BY sales_count DESC");
+$stmt->bind_param("ii", $store_id, $store_id);
 $stmt->execute();
 $result = $stmt->get_result();
 $workers = $result->fetch_all(MYSQLI_ASSOC);
@@ -111,6 +113,12 @@ $stmt->bind_param("i", $store_id);
 $stmt->execute();
 $result = $stmt->get_result();
 $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
+
+// 8. Calculate primary worker (most sales for this vehicle)
+$primary_worker = null;
+if (!empty($workers)) {
+    $primary_worker = $workers[0];
+}
 ?>
 
 <!DOCTYPE html>
@@ -129,10 +137,10 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
         
         <main class="content">
             <div class="back-nav">
-                <a href="stores.php" class="btn btn-sm">&larr; Back to Vehicles</a>
+                <a href="stores.php" class="btn btn-sm" style="background-color: #8B4513; color: white;">&larr; Back to Vehicles</a>
             </div>
             
-            <h1><?php echo ucfirst($store['type']); ?>: <?php echo sanitize($store['name']); ?></h1>
+            <h1 style="color: #8B4513;"><?php echo ucfirst($store['type']); ?>: <?php echo sanitize($store['name']); ?></h1>
             
             <?php if (!empty($success)): ?>
                 <div class="alert alert-success"><?php echo $success; ?></div>
@@ -159,6 +167,9 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                                 <span class="badge danger">Inactive</span>
                             <?php endif; ?>
                         </p>
+                        <?php if ($primary_worker): ?>
+                            <p><strong>Primary Worker:</strong> <?php echo sanitize($primary_worker['full_name']); ?></p>
+                        <?php endif; ?>
                     </div>
                     
                     <div class="summary-card">
@@ -174,8 +185,9 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                         <h3>Outstanding Debts</h3>
                         <p><strong>Total Debts:</strong> <?php echo $debts_stats['total_debts'] ?? 0; ?></p>
                         <p><strong>Total Outstanding:</strong> <?php echo formatCurrency($debts_stats['total_outstanding'] ?? 0); ?></p>
+                        <p><strong>Credit Customers:</strong> <?php echo $sales_stats['credit_customers_count'] ?? 0; ?></p>
                         <p>
-                            <a href="debts.php?vehicle_id=<?php echo $store_id; ?>" class="btn btn-sm btn-primary">View All Debts</a>
+                            <a href="debts.php?vehicle_id=<?php echo $store_id; ?>" class="btn btn-sm btn-primary" style="background-color: #8B4513;">View All Debts</a>
                         </p>
                     </div>
                 </div>
@@ -185,8 +197,9 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                     <h3>Associated Workers</h3>
                     <div class="worker-list">
                         <?php foreach($workers as $worker): ?>
-                            <div class="worker-badge">
-                                <?php echo sanitize($worker['full_name']); ?>
+                            <div class="worker-badge" style="background-color: #f5efe6; color: #8B4513;">
+                                <?php echo sanitize($worker['full_name']); ?> 
+                                <span class="badge" style="background-color: #8B4513; color: white; font-size: 0.8em;"><?php echo $worker['sales_count']; ?> sales</span>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -194,8 +207,8 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                 <?php endif; ?>
             </div>
             
-            <div class="tabs">
-                <div class="tab-header">
+            <div class="tabs" style="margin-top: 20px; border-left: 4px solid #8B4513;">
+                <div class="tab-header" style="background-color: #f5efe6;">
                     <button class="tab-btn active" onclick="openTab(event, 'tab-sales')">Recent Sales</button>
                     <button class="tab-btn" onclick="openTab(event, 'tab-expenses')">Recent Expenses</button>
                     <button class="tab-btn" onclick="openTab(event, 'tab-customers')">Customers with Debts</button>
@@ -206,7 +219,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                         <p class="text-center">No sales recorded for this vehicle</p>
                     <?php else: ?>
                         <table class="data-table">
-                            <thead>
+                            <thead style="background-color: #f5efe6;">
                                 <tr>
                                     <th>Date</th>
                                     <th>Customer</th>
@@ -222,7 +235,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                                         <td><?php echo date('M d, Y', strtotime($sale['created_at'])); ?></td>
                                         <td>
                                             <?php if ($sale['payment_type'] === 'credit'): ?>
-                                                <a href="customer_details.php?id=<?php echo $sale['customer_id']; ?>">
+                                                <a href="customer_details.php?id=<?php echo $sale['customer_id']; ?>" style="color: #8B4513;">
                                                     <?php echo sanitize($sale['customer_name']); ?>
                                                 </a>
                                             <?php else: ?>
@@ -244,7 +257,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                             </tbody>
                         </table>
                         <p class="text-center mt-4">
-                            <a href="sales.php" class="btn btn-sm btn-primary">View All Sales</a>
+                            <a href="sales.php?store_id=<?php echo $store_id; ?>" class="btn btn-sm btn-primary" style="background-color: #8B4513;">View All Sales</a>
                         </p>
                     <?php endif; ?>
                 </div>
@@ -254,7 +267,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                         <p class="text-center">No expenses recorded for this vehicle</p>
                     <?php else: ?>
                         <table class="data-table">
-                            <thead>
+                            <thead style="background-color: #f5efe6;">
                                 <tr>
                                     <th>Date</th>
                                     <th>Description</th>
@@ -274,7 +287,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                             </tbody>
                         </table>
                         <p class="text-center mt-4">
-                            <a href="expenses.php?store_id=<?php echo $store_id; ?>" class="btn btn-sm btn-primary">View All Expenses</a>
+                            <a href="expenses.php?store_id=<?php echo $store_id; ?>" class="btn btn-sm btn-primary" style="background-color: #8B4513;">View All Expenses</a>
                         </p>
                     <?php endif; ?>
                 </div>
@@ -284,7 +297,7 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                         <p class="text-center">No customers with outstanding debts for this vehicle</p>
                     <?php else: ?>
                         <table class="data-table">
-                            <thead>
+                            <thead style="background-color: #f5efe6;">
                                 <tr>
                                     <th>Customer</th>
                                     <th>Number of Debts</th>
@@ -296,14 +309,14 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
                                 <?php foreach($customer_debts as $customer): ?>
                                     <tr>
                                         <td>
-                                            <a href="customer_details.php?id=<?php echo $customer['id']; ?>">
+                                            <a href="customer_details.php?id=<?php echo $customer['id']; ?>" style="color: #8B4513;">
                                                 <?php echo sanitize($customer['full_name']); ?>
                                             </a>
                                         </td>
                                         <td><?php echo $customer['debt_count']; ?></td>
                                         <td><?php echo formatCurrency($customer['total_outstanding']); ?></td>
                                         <td>
-                                            <a href="customer_details.php?id=<?php echo $customer['id']; ?>" class="btn btn-sm btn-info">View</a>
+                                            <a href="customer_details.php?id=<?php echo $customer['id']; ?>" class="btn btn-sm btn-info" style="background-color: #8B4513;">View</a>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -398,6 +411,22 @@ $customer_debts = $result->fetch_all(MYSQLI_ASSOC);
         
         .tab-content.active {
             display: block;
+        }
+        
+        /* Earth brown colors */
+        .btn-primary, .btn-info, .btn-success {
+            background-color: #8B4513;
+            border-color: #8B4513;
+            color: white;
+        }
+        
+        .btn-primary:hover, .btn-info:hover, .btn-success:hover {
+            background-color: #734012;
+            border-color: #734012;
+        }
+        
+        a {
+            color: #8B4513;
         }
     </style>
     

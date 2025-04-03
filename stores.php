@@ -84,6 +84,20 @@ foreach ($stores as &$store) {
     $result = $stmt->get_result();
     $row = $result->fetch_assoc();
     $store['expenses'] = $row['total_expenses'] ?? 0;
+    
+    // Get primary worker
+    $stmt = $conn->prepare("SELECT u.full_name, COUNT(*) as sales_count 
+                           FROM sales s 
+                           JOIN users u ON s.created_by = u.id 
+                           WHERE s.store_id = ? AND u.role = 'worker'
+                           GROUP BY s.created_by 
+                           ORDER BY sales_count DESC 
+                           LIMIT 1");
+    $stmt->bind_param("i", $store['id']);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $worker = $result->fetch_assoc();
+    $store['primary_worker'] = $worker ? $worker['full_name'] : 'None';
 }
 unset($store);
 ?>
@@ -102,7 +116,7 @@ unset($store);
         <?php include 'includes/sidebar.php'; ?>
         
         <main class="content">
-            <h1>Vehicles Management</h1>
+            <h1 style="color: #8B4513;">Vehicles Management</h1>
             
             <?php if (!empty($success)): ?>
                 <div class="alert alert-success"><?php echo $success; ?></div>
@@ -151,15 +165,19 @@ unset($store);
             <div class="card mt-4" style="border-left: 4px solid #8B4513;">
                 <div class="card-header" style="background-color: #f5efe6; border-bottom: 1px solid #e8ddcf;">
                     <h2 style="color: #8B4513;">Vehicles List</h2>
+                    <div class="card-tools">
+                        <input type="text" id="vehicleSearch" placeholder="Search vehicles..." class="search-input" style="border: 1px solid #e8ddcf;">
+                    </div>
                 </div>
                 <div class="card-body">
-                    <table class="data-table">
+                    <table class="data-table" id="vehiclesTable">
                         <thead style="background-color: #f5efe6;">
                             <tr>
                                 <th>Name</th>
                                 <th>Type</th>
                                 <th>Location</th>
                                 <th>Number Plate</th>
+                                <th>Primary Worker</th>
                                 <th>Total Sales</th>
                                 <th>Cash Sales</th>
                                 <th>Credit Sales</th>
@@ -171,7 +189,7 @@ unset($store);
                         <tbody>
                             <?php if (empty($stores)): ?>
                                 <tr>
-                                    <td colspan="10" class="text-center">No vehicles found</td>
+                                    <td colspan="11" class="text-center">No vehicles found</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($stores as $store): ?>
@@ -180,6 +198,7 @@ unset($store);
                                         <td><?php echo ucfirst($store['type']); ?></td>
                                         <td><?php echo sanitize($store['location'] ?? '-'); ?></td>
                                         <td><?php echo $store['type'] === 'lorry' ? sanitize($store['number_plate'] ?? '-') : '-'; ?></td>
+                                        <td><?php echo sanitize($store['primary_worker']); ?></td>
                                         <td><?php echo formatCurrency($store['total_sales']); ?></td>
                                         <td><?php echo formatCurrency($store['cash_sales']); ?></td>
                                         <td><?php echo formatCurrency($store['credit_sales']); ?></td>
@@ -192,13 +211,13 @@ unset($store);
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <a href="store_details.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-info">View</a>
-                                            <a href="expenses.php?store_id=<?php echo $store['id']; ?>" class="btn btn-sm btn-primary">Expenses</a>
+                                            <a href="store_details.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-info" style="background-color: #8B4513;">View</a>
+                                            <a href="expenses.php?store_id=<?php echo $store['id']; ?>" class="btn btn-sm btn-primary" style="background-color: #8B4513;">Expenses</a>
                                             
                                             <?php if ($store['status'] === 'active'): ?>
                                                 <a href="stores.php?action=deactivate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this vehicle?')">Deactivate</a>
                                             <?php else: ?>
-                                                <a href="stores.php?action=activate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-success">Activate</a>
+                                                <a href="stores.php?action=activate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-success" style="background-color: #8B4513;">Activate</a>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -227,6 +246,28 @@ unset($store);
         
         // Initial call
         toggleNumberPlateField();
+        
+        // Search functionality for vehicles table
+        document.getElementById('vehicleSearch').addEventListener('keyup', function() {
+            const searchTerm = this.value.toLowerCase();
+            const table = document.getElementById('vehiclesTable');
+            const rows = table.getElementsByTagName('tr');
+            
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.getElementsByTagName('td');
+                let found = false;
+                
+                for (let j = 0; j < cells.length - 1; j++) {
+                    if (cells[j].textContent.toLowerCase().indexOf(searchTerm) > -1) {
+                        found = true;
+                        break;
+                    }
+                }
+                
+                row.style.display = found ? '' : 'none';
+            }
+        });
     </script>
 </body>
 </html>
