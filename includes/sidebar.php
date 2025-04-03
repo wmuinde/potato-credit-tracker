@@ -10,7 +10,7 @@
             <?php if (isAdmin()): ?>
                 <li><a href="workers.php">Workers Management</a></li>
             <?php endif; ?>
-            <li><a href="stores.php">Stores/Lorries</a></li>
+            <li><a href="stores.php">Vehicles</a></li>
             <li><a href="expenses.php">Expenses</a></li>
             <li><a href="reports.php">Reports</a></li>
             <li><a href="profile.php">My Profile</a></li>

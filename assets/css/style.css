@@ -1,4 +1,3 @@
-
 /* Main Styles for Potato Credit Tracker */
 
 /* Base Styles */
@@ -12,12 +11,12 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
     color: #333;
-    background-color: #f5f5f5;
+    background-color: #f8f5f2;
 }
 
 a {
     text-decoration: none;
-    color: #2e7d32;
+    color: #8B4513;
 }
 
 ul {
@@ -37,7 +36,7 @@ ul {
     align-items: center;
     padding: 0 20px;
     height: 60px;
-    background-color: #2e7d32;
+    background-color: #8B4513;
     color: #fff;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -54,7 +53,7 @@ ul {
 }
 
 .role-badge {
-    background-color: #1b5e20;
+    background-color: #6B3E26;
     padding: 3px 8px;
     border-radius: 4px;
     font-size: 0.8rem;
@@ -64,18 +63,18 @@ ul {
     color: #fff;
     padding: 5px 10px;
     border-radius: 4px;
-    background-color: #1b5e20;
+    background-color: #6B3E26;
     transition: background-color 0.3s;
 }
 
 .logout-btn:hover {
-    background-color: #388e3c;
+    background-color: #A0522D;
 }
 
 /* Sidebar */
 .sidebar {
     width: 250px;
-    background-color: #f0f0f0;
+    background-color: #f0e6d9;
     padding: 20px 0;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
 }
@@ -83,16 +82,16 @@ ul {
 .main-nav ul li a {
     display: block;
     padding: 12px 20px;
-    color: #333;
+    color: #5D4037;
     border-left: 4px solid transparent;
     transition: all 0.3s;
 }
 
 .main-nav ul li a:hover,
 .main-nav ul li a.active {
-    background-color: #e8f5e9;
-    border-left-color: #2e7d32;
-    color: #2e7d32;
+    background-color: #e8ddcf;
+    border-left-color: #8B4513;
+    color: #8B4513;
 }
 
 /* Content */
@@ -103,7 +102,7 @@ ul {
 
 h1, h2, h3 {
     margin-bottom: 20px;
-    color: #2e7d32;
+    color: #8B4513;
 }
 
 /* Cards */
@@ -113,12 +112,13 @@ h1, h2, h3 {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     margin-bottom: 20px;
     overflow: hidden;
+    border-left: 4px solid #8B4513;
 }
 
 .card-header {
-    background-color: #f9f9f9;
+    background-color: #f9f6f2;
     padding: 15px 20px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #e8ddcf;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -185,12 +185,12 @@ select:focus {
 }
 
 .btn-primary {
-    background-color: #2e7d32;
+    background-color: #8B4513;
     color: #fff;
 }
 
 .btn-primary:hover {
-    background-color: #388e3c;
+    background-color: #A0522D;
 }
 
 .btn-secondary {
@@ -258,16 +258,17 @@ select:focus {
 .data-table td {
     padding: 12px;
     text-align: left;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #e8ddcf;
 }
 
 .data-table th {
-    background-color: #f5f5f5;
+    background-color: #f9f6f2;
     font-weight: 600;
+    color: #5D4037;
 }
 
 .data-table tbody tr:hover {
-    background-color: #f9f9f9;
+    background-color: #f9f6f2;
 }
 
 /* Alerts */
@@ -275,30 +276,31 @@ select:focus {
     padding: 15px;
     border-radius: 4px;
     margin-bottom: 20px;
+    border-left: 4px solid;
 }
 
 .alert-success {
     background-color: #e8f5e9;
     color: #2e7d32;
-    border: 1px solid #a5d6a7;
+    border-color: #2e7d32;
 }
 
 .alert-danger {
     background-color: #ffebee;
     color: #c62828;
-    border: 1px solid #ef9a9a;
+    border-color: #c62828;
 }
 
 .alert-warning {
-    background-color: #fff3e0;
+    background-color: #fff8e1;
     color: #ef6c00;
-    border: 1px solid #ffcc80;
+    border-color: #ef6c00;
 }
 
 .alert-info {
-    background-color: #e1f5fe;
+    background-color: #e3f2fd;
     color: #0277bd;
-    border: 1px solid #81d4fa;
+    border-color: #0277bd;
 }
 
 /* Badges */
@@ -321,12 +323,12 @@ select:focus {
 }
 
 .badge.warning {
-    background-color: #fff3e0;
+    background-color: #fff8e1;
     color: #ef6c00;
 }
 
 .badge.info {
-    background-color: #e1f5fe;
+    background-color: #e3f2fd;
     color: #0277bd;
 }
 
@@ -344,23 +346,24 @@ select:focus {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     padding: 20px;
     text-align: center;
+    border-top: 4px solid #8B4513;
 }
 
 .stat-card h3 {
     font-size: 1rem;
     margin-bottom: 10px;
-    color: #555;
+    color: #5D4037;
 }
 
 .stat-value {
     font-size: 2rem;
     font-weight: bold;
-    color: #2e7d32;
+    color: #8B4513;
 }
 
 /* Login Page */
 .login-page {
-    background-color: #f5f5f5;
+    background-color: #f8f5f2;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -374,6 +377,7 @@ select:focus {
     width: 100%;
     max-width: 400px;
     padding: 30px;
+    border-top: 5px solid #8B4513;
 }
 
 .login-header {
@@ -382,7 +386,7 @@ select:focus {
 }
 
 .login-header h1 {
-    color: #2e7d32;
+    color: #8B4513;
     font-size: 1.8rem;
     margin-bottom: 10px;
 }
@@ -443,6 +447,76 @@ select:focus {
     margin-bottom: 20px;
 }
 
+/* Recent Section */
+.recent-section {
+    margin-top: 30px;
+}
+
+.recent-section h2 {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+/* Transaction Log */
+.transaction-log {
+    background-color: #f9f6f2;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 20px;
+    border-left: 4px solid #A0522D;
+}
+
+.transaction-log h3 {
+    color: #5D4037;
+    margin-bottom: 10px;
+}
+
+.log-item {
+    border-bottom: 1px solid #e8ddcf;
+    padding: 10px 0;
+}
+
+.log-item:last-child {
+    border-bottom: none;
+}
+
+.log-date {
+    color: #757575;
+    font-size: 0.8rem;
+}
+
+.summary-card {
+    background-color: #f9f6f2;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-left: 4px solid #8B4513;
+}
+
+.summary-card h3 {
+    color: #5D4037;
+    margin-bottom: 15px;
+}
+
+.vehicle-card {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid #A0522D;
+}
+
+.vehicle-card h4 {
+    color: #8B4513;
+    margin-bottom: 10px;
+}
+
+.forward-total-btn {
+    margin-top: 15px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .container {
@@ -490,15 +564,4 @@ select:focus {
     .btn {
         padding: 8px 16px;
     }
-}
-
-/* Recent Section */
-.recent-section {
-    margin-top: 30px;
-}
-
-.recent-section h2 {
-    margin-bottom: 15px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #eee;
 }
