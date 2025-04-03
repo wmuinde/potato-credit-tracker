@@ -10,6 +10,7 @@ $success = $error = '';
 // Handle forwarding total payments to admin
 if (isset($_GET['action']) && $_GET['action'] === 'forward_total' && isset($_GET['amount'])) {
     $forward_amount = $_GET['amount'] ?? 0;
+    $notes = $_GET['notes'] ?? '';
     
     if (isWorker()) {
         $worker_id = $_SESSION['user_id'];
@@ -59,10 +60,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'forward_total' && isset($_GET
                     $remaining_to_forward -= $amount_to_forward;
                 }
                 
+                // Ensure payment_logs table has notes column
+                $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS notes TEXT");
+                
                 // Log the transaction
-                $log_sql = "INSERT INTO payment_logs (worker_id, total_amount, forwarded_date) VALUES (?, ?, ?)";
+                $log_sql = "INSERT INTO payment_logs (worker_id, total_amount, forwarded_date, notes) VALUES (?, ?, ?, ?)";
                 $log_stmt = $conn->prepare($log_sql);
-                $log_stmt->bind_param("ids", $worker_id, $forward_amount, $current_date);
+                $log_stmt->bind_param("idss", $worker_id, $forward_amount, $current_date, $notes);
                 $log_stmt->execute();
                 
                 $conn->commit();
@@ -81,6 +85,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'forward_total' && isset($_GET
 if (isset($_GET['action']) && $_GET['action'] === 'forward' && isset($_GET['id'])) {
     $payment_id = $_GET['id'];
     $forward_amount = $_GET['amount'] ?? 0;
+    $notes = $_GET['notes'] ?? '';
     
     if (isWorker()) {
         // Get payment details
@@ -175,6 +180,7 @@ $create_logs_table = "CREATE TABLE IF NOT EXISTS payment_logs (
     worker_id INT NOT NULL,
     total_amount DECIMAL(10,2) NOT NULL,
     forwarded_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
     FOREIGN KEY (worker_id) REFERENCES users(id)
 )";
 $conn->query($create_logs_table);
@@ -208,7 +214,7 @@ $conn->query($create_logs_table);
             <div class="summary-card">
                 <h3>Payment Collections Summary</h3>
                 <p><strong>Total Pending to Forward:</strong> <?php echo formatCurrency($total_uncollected); ?></p>
-                <button class="btn btn-primary mt-4" onclick="showForwardTotalForm(<?php echo $total_uncollected; ?>)">Forward Total to Admin</button>
+                <a href="forward_payments.php" class="btn btn-primary mt-4">Go to Forward Payments Page</a>
             </div>
             <?php endif; ?>
             
@@ -278,6 +284,7 @@ $conn->query($create_logs_table);
                             <th>Date</th>
                             <th>Worker</th>
                             <th>Amount Forwarded</th>
+                            <th>Notes</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -286,6 +293,7 @@ $conn->query($create_logs_table);
                             <td><?php echo date('M d, Y H:i', strtotime($log['forwarded_date'])); ?></td>
                             <td><?php echo sanitize($log['full_name']); ?></td>
                             <td><?php echo formatCurrency($log['total_amount']); ?></td>
+                            <td><?php echo !empty($log['notes']) ? sanitize($log['notes']) : '-'; ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -304,6 +312,11 @@ $conn->query($create_logs_table);
                             <label for="total_amount">Amount to Forward</label>
                             <input type="number" id="total_amount" name="amount" step="0.01" min="0.01" required>
                             <small>Maximum: <span id="max_total_amount"></span></small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="notes">Notes (Optional)</label>
+                            <textarea id="notes" name="notes" rows="2" placeholder="Add any notes about this forwarded payment"></textarea>
                         </div>
                         
                         <div class="form-group">
@@ -326,6 +339,11 @@ $conn->query($create_logs_table);
                             <label for="amount">Amount to Forward</label>
                             <input type="number" id="forward_amount" name="amount" step="0.01" min="0.01" required>
                             <small>Maximum: <span id="max_amount"></span></small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="modal_notes">Notes (Optional)</label>
+                            <textarea id="modal_notes" name="notes" rows="2" placeholder="Add any notes about this forwarded payment"></textarea>
                         </div>
                         
                         <div class="form-group">
@@ -365,6 +383,46 @@ $conn->query($create_logs_table);
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        
+        .summary-card {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #8B4513;
+        }
+        
+        .summary-card h3 {
+            color: #8B4513;
+            margin-top: 0;
+            border-bottom: 1px solid #e8ddcf;
+            padding-bottom: 10px;
+        }
+        
+        .transaction-log {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #8B4513;
+        }
+        
+        .transaction-log h3 {
+            color: #8B4513;
+            margin-top: 0;
+            border-bottom: 1px solid #e8ddcf;
+            padding-bottom: 10px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #e8ddcf;
+            border-radius: 4px;
+            resize: vertical;
         }
     </style>
     

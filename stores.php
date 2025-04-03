@@ -7,7 +7,7 @@ checkAccess();
 
 $success = $error = '';
 
-// Handle form submission for adding new store/lorry
+// Handle form submission for adding new vehicle
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_store'])) {
     $name = trim($_POST['name'] ?? '');
     $type = $_POST['type'] ?? 'store';
@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_store'])) {
     }
 }
 
-// Handle store status change
+// Handle vehicle status change
 if (isset($_GET['action']) && isset($_GET['id'])) {
     $action = $_GET['action'];
     $id = $_GET['id'];
@@ -40,18 +40,18 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
         $stmt->bind_param("si", $status, $id);
         
         if ($stmt->execute()) {
-            $success = "Store/Lorry " . ($action === 'activate' ? 'activated' : 'deactivated') . " successfully.";
+            $success = "Vehicle " . ($action === 'activate' ? 'activated' : 'deactivated') . " successfully.";
         } else {
             $error = "Failed to update status: " . $conn->error;
         }
     }
 }
 
-// Get all stores/lorries
+// Get all vehicles
 $stores_result = $conn->query("SELECT * FROM stores ORDER BY type, name");
 $stores = $stores_result->fetch_all(MYSQLI_ASSOC);
 
-// Get store stats
+// Get vehicle stats
 foreach ($stores as &$store) {
     // Calculate total sales
     $stmt = $conn->prepare("SELECT SUM(total_amount) as total_sales FROM sales WHERE store_id = ?");
@@ -92,7 +92,7 @@ unset($store);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stores/Lorries - Potato Credit Tracker</title>
+    <title>Vehicles Management - Potato Credit Tracker</title>
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
@@ -102,7 +102,7 @@ unset($store);
         <?php include 'includes/sidebar.php'; ?>
         
         <main class="content">
-            <h1>Stores & Lorries Management</h1>
+            <h1>Vehicles Management</h1>
             
             <?php if (!empty($success)): ?>
                 <div class="alert alert-success"><?php echo $success; ?></div>
@@ -112,15 +112,15 @@ unset($store);
                 <div class="alert alert-danger"><?php echo $error; ?></div>
             <?php endif; ?>
             
-            <div class="card">
-                <div class="card-header">
-                    <h2>Add New Store/Lorry</h2>
+            <div class="card" style="border-left: 4px solid #8B4513;">
+                <div class="card-header" style="background-color: #f5efe6; border-bottom: 1px solid #e8ddcf;">
+                    <h2 style="color: #8B4513;">Add New Vehicle</h2>
                 </div>
                 <div class="card-body">
                     <form method="post" action="">
                         <div class="form-group">
                             <label for="type">Type*</label>
-                            <select id="type" name="type" required onchange="toggleNumberPlateField()">
+                            <select id="type" name="type" required onchange="toggleNumberPlateField()" style="border: 1px solid #e8ddcf; border-radius: 4px;">
                                 <option value="store">Store</option>
                                 <option value="lorry">Lorry</option>
                             </select>
@@ -128,33 +128,33 @@ unset($store);
                         
                         <div class="form-group">
                             <label for="name">Name*</label>
-                            <input type="text" id="name" name="name" required>
+                            <input type="text" id="name" name="name" required style="border: 1px solid #e8ddcf; border-radius: 4px;">
                         </div>
                         
                         <div class="form-group">
                             <label for="location">Location</label>
-                            <input type="text" id="location" name="location">
+                            <input type="text" id="location" name="location" style="border: 1px solid #e8ddcf; border-radius: 4px;">
                         </div>
                         
                         <div id="number_plate_field" class="form-group" style="display: none;">
                             <label for="number_plate">Number Plate</label>
-                            <input type="text" id="number_plate" name="number_plate">
+                            <input type="text" id="number_plate" name="number_plate" style="border: 1px solid #e8ddcf; border-radius: 4px;">
                         </div>
                         
                         <div class="form-group">
-                            <button type="submit" name="add_store" class="btn btn-primary">Add Store/Lorry</button>
+                            <button type="submit" name="add_store" class="btn btn-primary" style="background-color: #8B4513; border-color: #8B4513;">Add Vehicle</button>
                         </div>
                     </form>
                 </div>
             </div>
             
-            <div class="card mt-4">
-                <div class="card-header">
-                    <h2>Stores & Lorries List</h2>
+            <div class="card mt-4" style="border-left: 4px solid #8B4513;">
+                <div class="card-header" style="background-color: #f5efe6; border-bottom: 1px solid #e8ddcf;">
+                    <h2 style="color: #8B4513;">Vehicles List</h2>
                 </div>
                 <div class="card-body">
                     <table class="data-table">
-                        <thead>
+                        <thead style="background-color: #f5efe6;">
                             <tr>
                                 <th>Name</th>
                                 <th>Type</th>
@@ -171,7 +171,7 @@ unset($store);
                         <tbody>
                             <?php if (empty($stores)): ?>
                                 <tr>
-                                    <td colspan="10" class="text-center">No stores or lorries found</td>
+                                    <td colspan="10" class="text-center">No vehicles found</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($stores as $store): ?>
@@ -196,7 +196,7 @@ unset($store);
                                             <a href="expenses.php?store_id=<?php echo $store['id']; ?>" class="btn btn-sm btn-primary">Expenses</a>
                                             
                                             <?php if ($store['status'] === 'active'): ?>
-                                                <a href="stores.php?action=deactivate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this store/lorry?')">Deactivate</a>
+                                                <a href="stores.php?action=deactivate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this vehicle?')">Deactivate</a>
                                             <?php else: ?>
                                                 <a href="stores.php?action=activate&id=<?php echo $store['id']; ?>" class="btn btn-sm btn-success">Activate</a>
                                             <?php endif; ?>

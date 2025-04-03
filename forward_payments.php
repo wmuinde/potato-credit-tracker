@@ -40,11 +40,16 @@ $stmt->execute();
 $result = $stmt->get_result();
 $vehicle_breakdown = $result->fetch_all(MYSQLI_ASSOC);
 
+// Ensure payment_logs table has notes column
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS notes TEXT");
+
 // Get recent forwarding history
 $stmt = $conn->prepare("SELECT 
                          pl.*, 
-                         DATE(pl.forwarded_date) as forward_date
+                         DATE(pl.forwarded_date) as forward_date,
+                         u.full_name as worker_name
                        FROM payment_logs pl
+                       JOIN users u ON pl.worker_id = u.id
                        WHERE pl.worker_id = ?
                        ORDER BY pl.forwarded_date DESC
                        LIMIT 10");
@@ -57,6 +62,7 @@ $forwarding_logs = $result->fetch_all(MYSQLI_ASSOC);
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['forward_amount'])) {
     $forward_amount = floatval($_POST['forward_amount'] ?? 0);
     $total_uncollected = $summary['total_uncollected'] ?? 0;
+    $notes = trim($_POST['notes'] ?? '');
     
     if ($forward_amount <= 0) {
         $error = "Forward amount must be greater than zero.";
@@ -96,10 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['forward_amount'])) {
                 $remaining_to_forward -= $amount_to_forward;
             }
             
-            // Log the transaction
-            $log_sql = "INSERT INTO payment_logs (worker_id, total_amount, forwarded_date) VALUES (?, ?, ?)";
+            // Log the transaction with notes
+            $log_sql = "INSERT INTO payment_logs (worker_id, total_amount, forwarded_date, notes) VALUES (?, ?, ?, ?)";
             $log_stmt = $conn->prepare($log_sql);
-            $log_stmt->bind_param("ids", $worker_id, $forward_amount, $current_date);
+            $log_stmt->bind_param("idss", $worker_id, $forward_amount, $current_date, $notes);
             $log_stmt->execute();
             
             $conn->commit();
@@ -126,6 +132,7 @@ $create_logs_table = "CREATE TABLE IF NOT EXISTS payment_logs (
     worker_id INT NOT NULL,
     total_amount DECIMAL(10,2) NOT NULL,
     forwarded_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
     FOREIGN KEY (worker_id) REFERENCES users(id)
 )";
 $conn->query($create_logs_table);
@@ -180,6 +187,10 @@ $conn->query($create_logs_table);
                             <input type="number" id="forward_amount" name="forward_amount" step="0.01" min="0.01" max="<?php echo $summary['total_uncollected']; ?>" value="<?php echo $summary['total_uncollected']; ?>" required>
                         </div>
                         <div class="form-group">
+                            <label for="notes">Notes (Optional)</label>
+                            <textarea id="notes" name="notes" rows="2" placeholder="Add any notes about this forwarded payment"></textarea>
+                        </div>
+                        <div class="form-group">
                             <button type="submit" class="btn btn-primary">Forward to Admin</button>
                         </div>
                     </form>
@@ -226,14 +237,18 @@ $conn->query($create_logs_table);
                     <thead>
                         <tr>
                             <th>Date & Time</th>
+                            <th>Forwarded By</th>
                             <th>Amount Forwarded</th>
+                            <th>Notes</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($forwarding_logs as $log): ?>
                             <tr>
                                 <td><?php echo date('M d, Y H:i', strtotime($log['forwarded_date'])); ?></td>
+                                <td><?php echo sanitize($log['worker_name']); ?></td>
                                 <td><?php echo formatCurrency($log['total_amount']); ?></td>
+                                <td><?php echo !empty($log['notes']) ? sanitize($log['notes']) : '-'; ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -278,6 +293,46 @@ $conn->query($create_logs_table);
             background-color: #fff;
             padding: 15px;
             border-radius: 6px;
+        }
+        
+        .summary-card {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #8B4513;
+        }
+        
+        .summary-card h3 {
+            color: #8B4513;
+            margin-top: 0;
+            border-bottom: 1px solid #e8ddcf;
+            padding-bottom: 10px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #e8ddcf;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        
+        .transaction-log {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #8B4513;
+        }
+        
+        .transaction-log h3 {
+            color: #8B4513;
+            margin-top: 0;
+            border-bottom: 1px solid #e8ddcf;
+            padding-bottom: 10px;
         }
     </style>
     
