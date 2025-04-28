@@ -1,8 +1,11 @@
-
 <?php
-require_once 'config.php';
+session_start();
+require_once 'includes/auth.php';
 
-// Destroy session and redirect to login page
-session_start(); // Ensure session is started
-session_destroy();
-redirect('login.php');
+// Log out the user
+logoutUser();
+
+// Redirect to login page
+header("Location: login.php");
+exit();
+?>

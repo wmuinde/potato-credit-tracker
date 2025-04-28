@@ -1,205 +1,278 @@
-
 <?php
-require_once 'config.php';
+session_start();
+require_once 'includes/config.php';
+require_once 'includes/functions.php';
+require_once 'includes/auth.php';
 
-// Check if user is admin
-checkAccess('admin');
+// Check if user is logged in and is admin
+if (!isLoggedIn() || !isAdmin()) {
+    header("Location: index.php");
+    exit();
+}
 
-$success = $error = '';
-
-// Handle form submission for adding new worker
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_worker'])) {
-    $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
-    $full_name = trim($_POST['full_name'] ?? '');
+// Process add worker form
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_worker'])) {
+    $name = $_POST['name'];
+    $username = $_POST['username'];
+    $password = $_POST['password'];
     
-    if (empty($username) || empty($password) || empty($full_name)) {
-        $error = "All fields are required.";
+    if (registerUser($conn, $name, $username, $password, 'worker')) {
+        header("Location: workers.php?success=added");
+        exit();
     } else {
-        // Check if username already exists
-        $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows > 0) {
-            $error = "Username already exists. Please choose another username.";
-        } else {
-            // Hash password
-            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            
-            $stmt = $conn->prepare("INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, 'worker')");
-            $stmt->bind_param("sss", $username, $hashed_password, $full_name);
-            
-            if ($stmt->execute()) {
-                $success = "Worker added successfully.";
-            } else {
-                $error = "Failed to add worker: " . $conn->error;
-            }
-        }
+        $error = "Username already exists";
     }
 }
 
-// Handle worker status change
-if (isset($_GET['action']) && isset($_GET['id'])) {
-    $action = $_GET['action'];
-    $id = $_GET['id'];
+// Process edit worker form
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['edit_worker'])) {
+    $workerId = $_POST['worker_id'];
+    $name = $_POST['name'];
+    $username = $_POST['username'];
+    $password = $_POST['password'];
     
-    if ($action === 'deactivate' || $action === 'activate') {
-        $status = ($action === 'activate') ? 'active' : 'inactive';
-        
-        $stmt = $conn->prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'worker'");
-        $stmt->bind_param("si", $status, $id);
+    // Check if username already exists for another user
+    $stmt = $conn->prepare("SELECT id FROM users WHERE username = :username AND id != :id");
+    $stmt->bindParam(':username', $username);
+    $stmt->bindParam(':id', $workerId);
+    $stmt->execute();
+    
+    if ($stmt->rowCount() > 0) {
+        $error = "Username already exists";
+    } else {
+        // Update worker
+        if (empty($password)) {
+            // Update without changing password
+            $stmt = $conn->prepare("UPDATE users SET name = :name, username = :username WHERE id = :id");
+            $stmt->bindParam(':name', $name);
+            $stmt->bindParam(':username', $username);
+            $stmt->bindParam(':id', $workerId);
+        } else {
+            // Update with new password
+            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare("UPDATE users SET name = :name, username = :username, password = :password WHERE id = :id");
+            $stmt->bindParam(':name', $name);
+            $stmt->bindParam(':username', $username);
+            $stmt->bindParam(':password', $hashedPassword);
+            $stmt->bindParam(':id', $workerId);
+        }
         
         if ($stmt->execute()) {
-            $success = "Worker " . ($action === 'activate' ? 'activated' : 'deactivated') . " successfully.";
-        } else {
-            $error = "Failed to update worker status: " . $conn->error;
+            header("Location: workers.php?success=updated");
+            exit();
         }
     }
 }
 
 // Get all workers
-$workers_result = $conn->query("SELECT * FROM users WHERE role = 'worker' ORDER BY full_name");
-$workers = $workers_result->fetch_all(MYSQLI_ASSOC);
-
-// Get worker stats
-foreach ($workers as &$worker) {
-    // Calculate uncollected amount
-    $stmt = $conn->prepare("SELECT SUM(amount - forwarded_to_admin) as uncollected FROM payments WHERE collected_by = ? AND forwarded_to_admin < amount");
-    $stmt->bind_param("i", $worker['id']);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $worker['uncollected'] = $row['uncollected'] ?? 0;
-    
-    // Calculate total collections
-    $stmt = $conn->prepare("SELECT SUM(amount) as total_collected FROM payments WHERE collected_by = ?");
-    $stmt->bind_param("i", $worker['id']);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $worker['total_collected'] = $row['total_collected'] ?? 0;
-    
-    // Calculate total forwarded
-    $stmt = $conn->prepare("SELECT SUM(forwarded_to_admin) as total_forwarded FROM payments WHERE collected_by = ?");
-    $stmt->bind_param("i", $worker['id']);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $worker['total_forwarded'] = $row['total_forwarded'] ?? 0;
-}
-unset($worker);
+$stmt = $conn->prepare("
+    SELECT u.*, 
+        (SELECT COUNT(DISTINCT va.vehicle_id) FROM vehicle_assignments va WHERE va.worker_id = u.id) as vehicle_count,
+        (SELECT SUM(p.amount - COALESCE(f.forwarded_amount, 0)) 
+         FROM payments p 
+         LEFT JOIN (
+             SELECT payment_id, SUM(amount) as forwarded_amount
+             FROM forwarded_funds
+             GROUP BY payment_id
+         ) f ON p.id = f.payment_id
+         WHERE p.worker_id = u.id
+        ) as held_funds
+    FROM users u
+    WHERE u.role = 'worker'
+    ORDER BY u.name
+");
+$stmt->execute();
+$workers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workers Management - Potato Credit Tracker</title>
+    <title>Workers - Potato Sales Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
     
-    <div class="container">
-        <?php include 'includes/sidebar.php'; ?>
-        
-        <main class="content">
-            <h1>Workers Management</h1>
+    <div class="container-fluid">
+        <div class="row">
+            <?php include 'includes/sidebar.php'; ?>
             
-            <?php if (!empty($success)): ?>
-                <div class="alert alert-success"><?php echo $success; ?></div>
-            <?php endif; ?>
-            
-            <?php if (!empty($error)): ?>
-                <div class="alert alert-danger"><?php echo $error; ?></div>
-            <?php endif; ?>
-            
-            <div class="card">
-                <div class="card-header">
-                    <h2>Add New Worker</h2>
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Workers</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addWorkerModal">
+                            Add New Worker
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <form method="post" action="">
-                        <div class="form-group">
-                            <label for="full_name">Full Name*</label>
-                            <input type="text" id="full_name" name="full_name" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="username">Username*</label>
-                            <input type="text" id="username" name="username" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="password">Password*</label>
-                            <input type="password" id="password" name="password" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <button type="submit" name="add_worker" class="btn btn-primary">Add Worker</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            
-            <div class="card mt-4">
-                <div class="card-header">
-                    <h2>Worker List</h2>
-                </div>
-                <div class="card-body">
-                    <table class="data-table">
+                
+                <?php if (isset($_GET['success'])): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <?php 
+                        $success = $_GET['success'];
+                        if ($success == 'added') echo 'Worker added successfully';
+                        elseif ($success == 'updated') echo 'Worker updated successfully';
+                        ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (isset($error)): ?>
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <?php echo $error; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <?php endif; ?>
+                
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
                         <thead>
                             <tr>
                                 <th>Name</th>
                                 <th>Username</th>
-                                <th>Total Collected</th>
-                                <th>Total Forwarded</th>
-                                <th>Holding Amount</th>
-                                <th>Status</th>
+                                <th>Assigned Vehicles</th>
+                                <th>Held Funds</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (empty($workers)): ?>
-                                <tr>
-                                    <td colspan="7" class="text-center">No workers found</td>
-                                </tr>
-                            <?php else: ?>
-                                <?php foreach ($workers as $worker): ?>
-                                    <tr>
-                                        <td><?php echo sanitize($worker['full_name']); ?></td>
-                                        <td><?php echo sanitize($worker['username']); ?></td>
-                                        <td><?php echo formatCurrency($worker['total_collected']); ?></td>
-                                        <td><?php echo formatCurrency($worker['total_forwarded']); ?></td>
-                                        <td><?php echo formatCurrency($worker['uncollected']); ?></td>
-                                        <td>
-                                            <?php if ($worker['status'] === 'active'): ?>
-                                                <span class="badge success">Active</span>
-                                            <?php else: ?>
-                                                <span class="badge danger">Inactive</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <a href="worker_details.php?id=<?php echo $worker['id']; ?>" class="btn btn-sm btn-info">View</a>
-                                            
-                                            <?php if ($worker['status'] === 'active'): ?>
-                                                <a href="workers.php?action=deactivate&id=<?php echo $worker['id']; ?>" class="btn btn-sm btn-warning" onclick="return confirm('Are you sure you want to deactivate this worker?')">Deactivate</a>
-                                            <?php else: ?>
-                                                <a href="workers.php?action=activate&id=<?php echo $worker['id']; ?>" class="btn btn-sm btn-success">Activate</a>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
+                            <?php foreach ($workers as $worker): ?>
+                            <tr>
+                                <td><?php echo $worker['name']; ?></td>
+                                <td><?php echo $worker['username']; ?></td>
+                                <td><?php echo $worker['vehicle_count']; ?></td>
+                                <td>
+                                    <?php 
+                                    $heldFunds = $worker['held_funds'] ?? 0;
+                                    echo formatCurrency($heldFunds);
+                                    if ($heldFunds > HELD_FUNDS_THRESHOLD) {
+                                        echo ' <span class="badge bg-danger">Exceeds Threshold</span>';
+                                    }
+                                    ?>
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-info" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#editWorkerModal"
+                                            data-worker-id="<?php echo $worker['id']; ?>"
+                                            data-worker-name="<?php echo $worker['name']; ?>"
+                                            data-worker-username="<?php echo $worker['username']; ?>">
+                                        Edit
+                                    </button>
+                                    <?php if ($heldFunds > 0): ?>
+                                    <a href="worker-funds.php?id=<?php echo $worker['id']; ?>" class="btn btn-sm btn-warning">View Funds</a>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
     </div>
     
-    <script src="assets/js/script.js"></script>
+    <!-- Add Worker Modal -->
+    <div class="modal fade" id="addWorkerModal" tabindex="-1" aria-labelledby="addWorkerModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="addWorkerModalLabel">Add New Worker</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="add_worker" class="btn btn-primary">Add Worker</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Worker Modal -->
+    <div class="modal fade" id="editWorkerModal" tabindex="-1" aria-labelledby="editWorkerModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editWorkerModalLabel">Edit Worker</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="edit_worker_id" name="worker_id">
+                        <div class="mb-3">
+                            <label for="edit_name" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="edit_name" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="edit_username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="edit_password" name="password">
+                            <div class="form-text">Leave blank to keep current password</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="edit_worker" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <?php include 'includes/footer.php'; ?>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Feather icons
+            if (typeof feather !== 'undefined') {
+                feather.replace();
+            }
+            
+            // Set up edit worker modal
+            const editWorkerModal = document.getElementById('editWorkerModal');
+            if (editWorkerModal) {
+                editWorkerModal.addEventListener('show.bs.modal', function(event) {
+                    const button = event.relatedTarget;
+                    const workerId = button.getAttribute('data-worker-id');
+                    const workerName = button.getAttribute('data-worker-name');
+                    const workerUsername = button.getAttribute('data-worker-username');
+                    
+                    const workerIdInput = editWorkerModal.querySelector('#edit_worker_id');
+                    const nameInput = editWorkerModal.querySelector('#edit_name');
+                    const usernameInput = editWorkerModal.querySelector('#edit_username');
+                    
+                    workerIdInput.value = workerId;
+                    nameInput.value = workerName;
+                    usernameInput.value = workerUsername;
+                });
+            }
+        });
+    </script>
 </body>
 </html>

@@ -1,0 +1,15 @@
+# Enable URL rewriting
+RewriteEngine On
+
+# Set the base directory
+RewriteBase /
+
+# Prevent direct access to PHP files in the includes directory
+RewriteRule ^includes/ - [F,L]
+
+# Ensure proper handling of assets
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "max-age=86400"
+    </FilesMatch>
+</IfModule>

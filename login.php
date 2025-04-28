@@ -1,101 +1,78 @@
-
 <?php
-require_once 'config.php';
+session_start();
+require_once 'includes/config.php';
+require_once 'includes/functions.php';
+require_once 'includes/auth.php';
 
-// Redirect if user is already logged in
+// Check if already logged in
 if (isLoggedIn()) {
-    redirect('index.php');
+    header("Location: index.php");
+    exit();
 }
 
 $error = '';
 
-// Handle login form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Process login form
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
     
     if (empty($username) || empty($password)) {
-        $error = "Please enter both username and password.";
+        $error = 'Please enter both username and password';
     } else {
-        // Check if user exists and is active
-        $stmt = $conn->prepare("SELECT id, username, password, role, full_name FROM users WHERE username = ? AND status = 'active'");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows === 1) {
-            $user = $result->fetch_assoc();
-            
-            // Debug info - remove in production
-            error_log("Checking password for user: $username");
-            error_log("Stored hash: " . $user['password']);
-            
-            // Special case for admin/password during initial setup
-            if ($username === 'admin' && $password === 'password') {
-                // Set session variables
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['full_name'] = $user['full_name'];
-                
-                // Redirect to dashboard
-                redirect('index.php');
+        if (authenticateUser($conn, $username, $password)) {
+            // Make sure these session variables are set
+            if (!isset($_SESSION['user_role'])) {
+                // Fetch user role if not set by authenticateUser
+                $stmt = $conn->prepare("SELECT role FROM users WHERE username = :username");
+                $stmt->bindParam(':username', $username);
+                $stmt->execute();
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                $_SESSION['user_role'] = $user['role'] ?? 'worker';
             }
-            // Verify password
-            else if (password_verify($password, $user['password'])) {
-                // Set session variables
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['full_name'] = $user['full_name'];
-                
-                // Redirect to dashboard
-                redirect('index.php');
-            } else {
-                $error = "Invalid username or password.";
-            }
+            
+            header("Location: index.php");
+            exit();
         } else {
-            $error = "Invalid username or password.";
+            $error = 'Invalid username or password';
         }
     }
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Potato Credit Tracker</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <title>Login - Potato Sales Management System</title>
+    <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="assets/css/login.css">
+    <link rel="stylesheet" href="assets/css/theme.css">
 </head>
-<body class="login-page">
-    <div class="login-container">
-        <div class="login-header">
-            <h1>Potato Credit Tracker</h1>
-            <p>Track customer credits and collections</p>
-        </div>
-        
-        <form class="login-form" method="post" action="">
-            <?php if (!empty($error)): ?>
+<body class="text-center">
+    <main class="form-signin">
+        <form method="post">
+            <h1 class="h3 mb-3 fw-normal">Potato Sales Management</h1>
+            
+            <?php if ($error): ?>
                 <div class="alert alert-danger"><?php echo $error; ?></div>
             <?php endif; ?>
             
-            <div class="form-group">
+            <div class="form-floating mb-3">
+                <input type="text" class="form-control" id="username" name="username" placeholder="Username" required>
                 <label for="username">Username</label>
-                <input type="text" id="username" name="username" required>
             </div>
-            
-            <div class="form-group">
+            <div class="form-floating mb-3">
+                <input type="password" class="form-control" id="password" name="password" placeholder="Password" required>
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
             </div>
             
-            <div class="form-group">
-                <button type="submit" class="btn btn-primary btn-block">Login</button>
-            </div>
+            <button class="w-100 btn btn-lg btn-primary" type="submit">Sign in</button>
+            <p class="mt-5 mb-3 text-muted">&copy; <?php echo date('Y'); ?> <?php echo COMPANY_NAME; ?></p>
         </form>
-    </div>
+    </main>
     
-    <script src="assets/js/script.js"></script>
+    <script src="assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -1,261 +1,519 @@
-
 <?php
-require_once 'config.php';
+session_start();
+require_once 'includes/config.php';
+require_once 'includes/functions.php';
+require_once 'includes/auth.php';
+require_once 'includes/log_activity.php';
 
 // Check if user is logged in
-checkAccess();
-
-// Get dashboard statistics
-$stats = [];
-
-// Get total customers with debt
-$result = $conn->query("SELECT COUNT(DISTINCT c.id) as total FROM customers c 
-                        JOIN sales s ON c.id = s.customer_id 
-                        JOIN debts d ON s.id = d.sale_id 
-                        WHERE d.status != 'paid'");
-$stats['total_debtors'] = $result->fetch_assoc()['total'] ?? 0;
-
-// Get total debt amount
-$result = $conn->query("SELECT SUM(amount_due - amount_paid) as total FROM debts WHERE status != 'paid'");
-$stats['total_debt'] = $result->fetch_assoc()['total'] ?? 0;
-
-// Get total uncollected payment amount by workers (for admin)
-if (isAdmin()) {
-    $result = $conn->query("SELECT SUM(amount - forwarded_to_admin) as total FROM payments WHERE forwarded_to_admin < amount");
-    $stats['uncollected_payments'] = $result->fetch_assoc()['total'] ?? 0;
-    
-    // Get vehicles with debts
-    $vehicles_query = "SELECT s.*, 
-                        (SELECT COUNT(DISTINCT c.id) FROM customers c 
-                         JOIN sales sl ON c.id = sl.customer_id 
-                         JOIN debts d ON sl.id = d.sale_id 
-                         WHERE sl.store_id = s.id AND d.status != 'paid') as debtor_count,
-                         (SELECT SUM(d.amount_due - d.amount_paid) FROM sales sl 
-                          JOIN debts d ON sl.id = d.sale_id 
-                          WHERE sl.store_id = s.id AND d.status != 'paid') as total_debt
-                      FROM stores s
-                      ORDER BY s.name";
-    $vehicles = $conn->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
-} else {
-    // For workers, get their uncollected amount
-    $worker_id = $_SESSION['user_id'];
-    $stmt = $conn->prepare("SELECT SUM(amount - forwarded_to_admin) as total FROM payments WHERE collected_by = ? AND forwarded_to_admin < amount");
-    $stmt->bind_param("i", $worker_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $stats['my_uncollected'] = $result->fetch_assoc()['total'] ?? 0;
-    
-    // Get vehicles assigned to this worker
-    $worker_vehicles_query = "SELECT DISTINCT s.*, 
-                              (SELECT COUNT(DISTINCT c.id) FROM customers c 
-                               JOIN sales sl ON c.id = sl.customer_id 
-                               JOIN debts d ON sl.id = d.sale_id 
-                               WHERE sl.store_id = s.id AND d.status != 'paid') as debtor_count,
-                              (SELECT SUM(d.amount_due - d.amount_paid) FROM sales sl 
-                               JOIN debts d ON sl.id = d.sale_id 
-                               WHERE sl.store_id = s.id AND d.status != 'paid') as total_debt
-                            FROM stores s
-                            JOIN sales sl ON s.id = sl.store_id
-                            WHERE sl.created_by = ?
-                            GROUP BY s.id
-                            ORDER BY s.name";
-    $stmt = $conn->prepare($worker_vehicles_query);
-    $stmt->bind_param("i", $worker_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $worker_vehicles = $result->fetch_all(MYSQLI_ASSOC);
-    
-    // Get total uncollected amount
-    $stmt = $conn->prepare("SELECT SUM(amount) - SUM(forwarded_to_admin) as total_uncollected FROM payments WHERE collected_by = ?");
-    $stmt->bind_param("i", $worker_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $total_uncollected = $result->fetch_assoc()['total_uncollected'] ?? 0;
+if (!isLoggedIn()) {
+    header("Location: login.php");
+    exit();
 }
 
-// Get recent payments
-if (isAdmin()) {
-    $query = "SELECT p.*, d.sale_id, c.full_name as customer_name
-              FROM payments p
-              JOIN debts d ON p.debt_id = d.id
-              JOIN sales s ON d.sale_id = s.id
-              JOIN customers c ON s.customer_id = c.id
-              ORDER BY p.collection_date DESC LIMIT 5";
-    $recent_payments = $conn->query($query)->fetch_all(MYSQLI_ASSOC);
+// Get user role - add default value to prevent undefined array key error
+$userRole = $_SESSION['user_role'] ?? 'worker';
+$userId = $_SESSION['user_id'] ?? 0;
+
+// Get dashboard data
+$vehicleData = [];
+if ($userRole == 'admin') {
+    $vehicleData = getAllVehicles($conn);
 } else {
-    $worker_id = $_SESSION['user_id'];
-    $stmt = $conn->prepare("SELECT p.*, d.sale_id, c.full_name as customer_name, s.store_id
-                           FROM payments p
-                           JOIN debts d ON p.debt_id = d.id
-                           JOIN sales s ON d.sale_id = s.id
-                           JOIN customers c ON s.customer_id = c.id
-                           WHERE p.collected_by = ?
-                           ORDER BY p.collection_date DESC LIMIT 5");
-    $stmt->bind_param("i", $worker_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $recent_payments = $result->fetch_all(MYSQLI_ASSOC);
+    $vehicleData = getWorkerVehicles($conn, $userId);
 }
 
-// Get payment logs for workers
-if (!isAdmin()) {
-    $worker_id = $_SESSION['user_id'];
-    $stmt = $conn->prepare("SELECT 
-                                DATE(p.forwarded_date) as forward_date,
-                                SUM(p.forwarded_to_admin) as total_forwarded,
-                                COUNT(*) as payment_count
-                            FROM payments p
-                            WHERE p.collected_by = ? AND p.forwarded_to_admin > 0
-                            GROUP BY DATE(p.forwarded_date)
-                            ORDER BY p.forwarded_date DESC
-                            LIMIT 10");
-    $stmt->bind_param("i", $worker_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $forwarding_logs = $result->fetch_all(MYSQLI_ASSOC);
+// Get total sales, debts, and held funds
+$totalSales = getTotalSales($conn);
+$totalDebts = getTotalDebts($conn);
+$totalHeldFunds = getTotalHeldFunds($conn);
+
+// Get recent transactions
+$transactions = getRecentTransactions($conn, 10);
+
+// Get recent activity logs
+$activityLogs = getRecentLogs($conn, 5);
+
+// Get monthly sales data for chart
+$stmt = $conn->prepare("
+    SELECT 
+        DATE_FORMAT(date, '%Y-%m') as month,
+        SUM(CASE WHEN payment_type = 'cash' THEN amount ELSE 0 END) as cash_sales,
+        SUM(CASE WHEN payment_type = 'credit' THEN amount ELSE 0 END) as credit_sales
+    FROM sales
+    WHERE date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+    GROUP BY DATE_FORMAT(date, '%Y-%m')
+    ORDER BY month
+");
+$stmt->execute();
+$monthlySales = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Format monthly sales data for chart
+$months = [];
+$cashSales = [];
+$creditSales = [];
+
+foreach ($monthlySales as $data) {
+    $monthName = date('M Y', strtotime($data['month'] . '-01'));
+    $months[] = $monthName;
+    $cashSales[] = floatval($data['cash_sales']);
+    $creditSales[] = floatval($data['cash_sales']);
+    $creditSales[] = floatval($data['credit_sales']);
+}
+
+// Get vehicle performance data for chart
+$vehicleLabels = [];
+$vehicleProfits = [];
+$vehicleColors = ['#009ef7', '#50cd89', '#ffc700', '#f1416c', '#7239ea', '#181c32'];
+
+foreach (array_slice($vehicleData, 0, 6) as $index => $vehicle) {
+    $vehicleLabels[] = $vehicle['license_plate'];
+    $vehicleProfits[] = floatval($vehicle['profit'] ?? 0);
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Potato Credit Tracker</title>
+    <title>Dashboard - Potato Sales Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
     
-    <div class="container">
-        <?php include 'includes/sidebar.php'; ?>
-        
-        <main class="content">
-            <h1>Dashboard</h1>
+    <div class="container-fluid">
+        <div class="row">
+            <?php include 'includes/sidebar.php'; ?>
             
-            <div class="stats-container">
-                <div class="stat-card">
-                    <h3>Total Debtors</h3>
-                    <p class="stat-value"><?php echo $stats['total_debtors']; ?></p>
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3">
+                    <div>
+                        <h1 class="h2 fw-bold">Dashboard</h1>
+                        <p class="text-muted">Welcome back, <?php echo $_SESSION['user_name']; ?>!</p>
+                    </div>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <a href="reports.php" class="btn btn-sm btn-outline-primary">
+                                <i data-feather="file-text" class="me-1"></i> Generate Reports
+                            </a>
+                            <a href="import.php" class="btn btn-sm btn-outline-primary">
+                                <i data-feather="upload" class="me-1"></i> Import Data
+                            </a>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="stat-card">
-                    <h3>Total Outstanding Debt</h3>
-                    <p class="stat-value"><?php echo formatCurrency($stats['total_debt']); ?></p>
-                </div>
-                
-                <?php if (isAdmin()): ?>
-                <div class="stat-card">
-                    <h3>Uncollected From Workers</h3>
-                    <p class="stat-value"><?php echo formatCurrency($stats['uncollected_payments']); ?></p>
-                </div>
-                <?php else: ?>
-                <div class="stat-card">
-                    <h3>My Uncollected Amount</h3>
-                    <p class="stat-value"><?php echo formatCurrency($stats['my_uncollected'] ?? 0); ?></p>
-                </div>
-                <?php endif; ?>
-            </div>
-            
-            <?php if (!isAdmin() && !empty($worker_vehicles)): ?>
-            <div class="card">
-                <div class="card-header">
-                    <h2>My Assigned Vehicles</h2>
-                </div>
-                <div class="card-body">
-                    <?php foreach($worker_vehicles as $vehicle): ?>
-                        <div class="vehicle-card">
-                            <h4><?php echo sanitize($vehicle['name']); ?> (<?php echo ucfirst($vehicle['type']); ?>)</h4>
-                            <div class="flex-between">
-                                <div>
-                                    <p><strong>Debtors:</strong> <?php echo $vehicle['debtor_count']; ?></p>
+
+                <!-- Stats Cards -->
+                <div class="row">
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100">
+                            <div class="card-body p-0">
+                                <div class="stat-card primary">
+                                    <div class="stat-icon">
+                                        <i data-feather="truck"></i>
+                                    </div>
+                                    <div class="stat-title">Total Vehicles</div>
+                                    <div class="stat-value" style="font-size: 1.3rem;"><?php echo count($vehicleData); ?></div>
+                                    <div class="stat-desc">Active vehicles in the system</div>
                                 </div>
-                                <div>
-                                    <p><strong>Outstanding Debt:</strong> <?php echo formatCurrency($vehicle['total_debt'] ?? 0); ?></p>
-                                </div>
-                            </div>
-                            <div class="mt-4">
-                                <a href="debts.php?vehicle_id=<?php echo $vehicle['id']; ?>" class="btn btn-sm btn-info">View Debts</a>
                             </div>
                         </div>
-                    <?php endforeach; ?>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100">
+                            <div class="card-body p-0">
+                                <div class="stat-card success">
+                                    <div class="stat-icon">
+                                        <i data-feather="dollar-sign"></i>
+                                    </div>
+                                    <div class="stat-title">Cash Sales</div>
+                                    <?php
+                                    // Get maximum cash sales
+                                    $stmt = $conn->prepare("SELECT MAX(amount) as max_sale FROM sales WHERE payment_type = 'cash'");
+                                    $stmt->execute();
+                                    $maxSale = $stmt->fetch(PDO::FETCH_ASSOC);
+                                    $maxCashSale = $maxSale['max_sale'] ?? 0;
+                                    
+                                    // Get total cash sales
+                                    $stmt = $conn->prepare("SELECT SUM(amount) as total FROM sales WHERE payment_type = 'cash'");
+                                    $stmt->execute();
+                                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+                                    $totalCashSales = $result['total'] ?? 0;
+                                    ?>
+                                    <div class="stat-value" style="font-size: 1.3rem;"><?php echo formatCurrency($totalCashSales); ?></div>
+                                    <div class="stat-desc">
+                                        Max: <?php echo formatCurrency($maxCashSale); ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100">
+                            <div class="card-body p-0">
+                                <div class="stat-card warning">
+                                    <div class="stat-icon">
+                                        <i data-feather="alert-circle"></i>
+                                    </div>
+                                    <div class="stat-title">Outstanding Debts</div>
+                                    <div class="stat-value" style="font-size: 1.3rem;"><?php echo formatCurrency($totalDebts); ?></div>
+                                    <div class="stat-desc">
+                                        <a href="debts.php" class="text-white text-decoration-none">View All Debts</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100">
+                            <div class="card-body p-0">
+                                <div class="stat-card danger">
+                                    <div class="stat-icon">
+                                        <i data-feather="credit-card"></i>
+                                    </div>
+                                    <div class="stat-title">Held Funds</div>
+                                    <div class="stat-value" style="font-size: 1.3rem;"><?php echo formatCurrency($totalHeldFunds); ?></div>
+                                    <div class="stat-desc">Money held by workers</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <?php endif; ?>
-            
-            <?php if (!isAdmin()): ?>
-            <div class="summary-card">
-                <h3>Payment Collections Summary</h3>
-                <div>
-                    <p><strong>Total Collected:</strong> <?php echo formatCurrency($stats['my_uncollected'] + ($total_forwarded ?? 0)); ?></p>
-                    <p><strong>Total Forwarded to Admin:</strong> <?php echo formatCurrency($total_forwarded ?? 0); ?></p>
-                    <p><strong>Pending to Forward:</strong> <?php echo formatCurrency($stats['my_uncollected'] ?? 0); ?></p>
+
+                <!-- Charts -->
+                <div class="row">
+                    <div class="col-lg-8 mb-4">
+                        <div class="card h-100">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Monthly Sales Overview</h5>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="salesChartDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i data-feather="more-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="salesChartDropdown">
+                                        <li><a class="dropdown-item" href="#">Last 6 Months</a></li>
+                                        <li><a class="dropdown-item" href="#">Last 12 Months</a></li>
+                                        <li><a class="dropdown-item" href="#">Export Data</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="salesChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4 mb-4">
+                        <div class="card h-100">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Vehicle Profitability</h5>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="vehicleChartDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i data-feather="more-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="vehicleChartDropdown">
+                                        <li><a class="dropdown-item" href="#">Top 5 Vehicles</a></li>
+                                        <li><a class="dropdown-item" href="#">All Vehicles</a></li>
+                                        <li><a class="dropdown-item" href="#">Export Data</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="vehicleChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                
-                <?php if (isset($stats['my_uncollected']) && $stats['my_uncollected'] > 0): ?>
-                <div class="forward-total-btn">
-                    <a href="forward_payments.php" class="btn btn-primary">Forward Payments to Admin</a>
+
+                <!-- Vehicle Performance and Recent Transactions -->
+                <div class="row">
+                    <div class="col-lg-8 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Vehicle Performance</h5>
+                                <a href="vehicles.php" class="btn btn-sm btn-primary">View All Vehicles</a>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>License Plate</th>
+                                                <th>Bags Loaded</th>
+                                                <th>Cash Sales</th>
+                                                <th>Credit Sales</th>
+                                                <th>Expenses</th>
+                                                <th>Profit</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach (array_slice($vehicleData, 0, 5) as $vehicle): ?>
+                                            <tr>
+                                                <td>
+                                                    <div class="d-flex align-items-center">
+                                                        <div class="avatar bg-primary-light text-primary rounded-circle d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px;">
+                                                            <i data-feather="truck" style="width: 16px; height: 16px;"></i>
+                                                        </div>
+                                                        <span class="fw-medium"><?php echo $vehicle['license_plate']; ?></span>
+                                                    </div>
+                                                </td>
+                                                <td><?php echo $vehicle['bags_loaded']; ?></td>
+                                                <td><?php echo formatCurrency($vehicle['cash_sales'] ?? 0); ?></td>
+                                                <td><?php echo formatCurrency($vehicle['credit_sales'] ?? 0); ?></td>
+                                                <td><?php echo formatCurrency($vehicle['expenses'] ?? 0); ?></td>
+                                                <td>
+                                                    <?php 
+                                                    $profit = $vehicle['profit'] ?? 0;
+                                                    $profitClass = $profit >= 0 ? 'text-success' : 'text-danger';
+                                                    echo '<span class="' . $profitClass . '">' . formatCurrency($profit) . '</span>';
+                                                    ?>
+                                                </td>
+                                                <td>
+                                                    <a href="vehicle-details.php?id=<?php echo $vehicle['id']; ?>" class="btn btn-sm btn-primary">Details</a>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Recent Activity</h5>
+                                <?php if ($userRole == 'admin'): ?>
+                                <a href="activity-logs.php" class="btn btn-sm btn-primary">View All</a>
+                                <?php endif; ?>
+                            </div>
+                            <div class="card-body">
+                                <ul class="activity-log">
+                                    <?php foreach ($activityLogs as $log): ?>
+                                    <li class="<?php echo $log['type']; ?>">
+                                        <div class="log-time"><?php echo date('M d, H:i', strtotime($log['created_at'])); ?></div>
+                                        <div class="log-message"><?php echo $log['action']; ?></div>
+                                        <div class="log-details">
+                                            <span class="fw-medium"><?php echo $log['user_name']; ?></span> - 
+                                            <?php echo $log['details']; ?>
+                                        </div>
+                                    </li>
+                                    <?php endforeach; ?>
+                                    <?php if (empty($activityLogs)): ?>
+                                    <li class="text-center py-3">
+                                        <div class="text-muted">No recent activity</div>
+                                    </li>
+                                    <?php endif; ?>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
-            
-            <div class="recent-section">
-                <h2>Recent Collections</h2>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Customer</th>
-                            <th>Amount</th>
-                            <th>Vehicle</th>
-                            <th>Collected By</th>
-                            <th>Date</th>
-                            <th>Forwarded</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($recent_payments)): ?>
-                            <tr>
-                                <td colspan="6" class="text-center">No recent collections found</td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($recent_payments as $payment): ?>
-                                <tr>
-                                    <td><?php echo sanitize($payment['customer_name']); ?></td>
-                                    <td><?php echo formatCurrency($payment['amount']); ?></td>
-                                    <td><?php echo getStoreName($conn, $payment['store_id'] ?? 0); ?></td>
-                                    <td><?php echo getUserName($conn, $payment['collected_by']); ?></td>
-                                    <td><?php echo date('M d, Y', strtotime($payment['collection_date'])); ?></td>
-                                    <td>
-                                        <?php if ($payment['forwarded_to_admin'] >= $payment['amount']): ?>
-                                            <span class="badge success">Yes</span>
-                                        <?php else: ?>
-                                            <span class="badge warning">
-                                                <?php echo formatCurrency($payment['forwarded_to_admin']); ?> / <?php echo formatCurrency($payment['amount']); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-            
-            <?php if (!isAdmin() && !empty($forwarding_logs)): ?>
-            <div class="transaction-log">
-                <h3>Payment Forwarding History</h3>
-                <?php foreach($forwarding_logs as $log): ?>
-                <div class="log-item">
-                    <p><strong>Date:</strong> <span class="log-date"><?php echo date('M d, Y', strtotime($log['forward_date'])); ?></span></p>
-                    <p><strong>Amount Forwarded:</strong> <?php echo formatCurrency($log['total_forwarded']); ?></p>
-                    <p><strong>Payments Included:</strong> <?php echo $log['payment_count']; ?></p>
+
+                <!-- Add this after the "Recent Activity" card in the dashboard -->
+                <div class="col-lg-4 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Recent Messages</h5>
+                            <a href="messages.php" class="btn btn-sm btn-primary">View All</a>
+                        </div>
+                        <div class="card-body">
+                            <?php 
+                            $recentConversations = getRecentConversations($conn, $userId);
+                            if (!empty($recentConversations)): 
+                            ?>
+                                <ul class="list-group list-group-flush">
+                                    <?php foreach (array_slice($recentConversations, 0, 5) as $conversation): ?>
+                                        <li class="list-group-item px-0">
+                                            <a href="messages.php?user=<?php echo $conversation['user_id']; ?>" class="d-flex align-items-center text-decoration-none">
+                                                <div class="avatar bg-primary-light text-primary rounded-circle d-flex align-items-center justify-content-center me-2" style="width: 40px; height: 40px;">
+                                                    <i data-feather="user" style="width: 20px; height: 20px;"></i>
+                                                </div>
+                                                <div class="flex-grow-1 ms-2">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span class="fw-medium"><?php echo $conversation['user_name']; ?></span>
+                                                        <small class="text-muted"><?php echo date('H:i', strtotime($conversation['last_message_time'])); ?></small>
+                                                    </div>
+                                                    <div class="small text-truncate <?php echo $conversation['unread_count'] > 0 ? 'fw-medium' : 'text-muted'; ?>">
+                                                        <?php 
+                                                        echo strlen($conversation['last_message']) > 30 ? 
+                                                            substr($conversation['last_message'], 0, 30) . '...' : 
+                                                            $conversation['last_message']; 
+                                                        ?>
+                                                    </div>
+                                                </div>
+                                                <?php if ($conversation['unread_count'] > 0): ?>
+                                                    <span class="badge bg-primary rounded-pill ms-2"><?php echo $conversation['unread_count']; ?></span>
+                                                <?php endif; ?>
+                                            </a>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php else: ?>
+                                <div class="text-center py-4 text-muted">
+                                    <i data-feather="message-square" style="width: 40px; height: 40px; opacity: 0.5;"></i>
+                                    <p class="mt-2">No messages yet</p>
+                                    <a href="messages.php" class="btn btn-sm btn-primary">Start a conversation</a>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 </div>
-                <?php endforeach; ?>
-            </div>
-            <?php endif; ?>
-        </main>
+
+                <!-- Recent Transactions -->
+                <div class="row">
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Recent Transactions</h5>
+                                <a href="reports.php" class="btn btn-sm btn-primary">View All Transactions</a>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Vehicle</th>
+                                                <th>Type</th>
+                                                <th>Customer</th>
+                                                <th>Amount</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($transactions as $transaction): ?>
+                                            <tr>
+                                                <td><?php echo formatDate($transaction['date']); ?></td>
+                                                <td><?php echo $transaction['vehicle']; ?></td>
+                                                <td>
+                                                    <?php if ($transaction['type'] == 'cash'): ?>
+                                                    <span class="badge bg-success">Cash</span>
+                                                    <?php else: ?>
+                                                    <span class="badge bg-warning">Credit</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><?php echo $transaction['customer']; ?></td>
+                                                <td><?php echo formatCurrency($transaction['amount']); ?></td>
+                                                <td>
+                                                    <span class="badge bg-<?php echo getStatusColor($transaction['status']); ?>">
+                                                        <?php echo $transaction['status']; ?>
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
     </div>
+
+    <?php include 'includes/footer.php'; ?>
     
-    <script src="assets/js/script.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Feather icons
+            if (typeof feather !== 'undefined') {
+                feather.replace();
+            }
+            
+            // Sales Chart
+            const salesCtx = document.getElementById('salesChart').getContext('2d');
+            const salesChart = new Chart(salesCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode($months); ?>,
+                    datasets: [
+                        {
+                            label: 'Cash Sales',
+                            data: <?php echo json_encode($cashSales); ?>,
+                            backgroundColor: '#009ef7',
+                            borderColor: '#009ef7',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Credit Sales',
+                            data: <?php echo json_encode($creditSales); ?>,
+                            backgroundColor: '#ffc700',
+                            borderColor: '#ffc700',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '<?php echo CURRENCY; ?> ' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': <?php echo CURRENCY; ?> ' + context.raw.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Vehicle Chart
+            const vehicleCtx = document.getElementById('vehicleChart').getContext('2d');
+            const vehicleChart = new Chart(vehicleCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: <?php echo json_encode($vehicleLabels); ?>,
+                    datasets: [{
+                        data: <?php echo json_encode($vehicleProfits); ?>,
+                        backgroundColor: <?php echo json_encode($vehicleColors); ?>,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': <?php echo CURRENCY; ?> ' + context.raw.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
 </body>
 </html>
